@@ -43,9 +43,10 @@ int main(int argc, char* argv[]) {
    free(forces);
    free(bodies);
    return 0;
-}  /* main */
+}
 
 /*-----------------------------------------------------------------*/
+/* Каждая пара учитывается один раз: силы на тела равны и противоположны. */
 void Compute_forces(const struct body_s bodies[], size_t body_count,
                     struct vector_s forces[]) {
    size_t i, j;
@@ -55,7 +56,7 @@ void Compute_forces(const struct body_s bodies[], size_t body_count,
       for (j = i + 1; j < body_count; j++) {
          struct vector_s force = Pair_force(&bodies[i], &bodies[j]);
          Add_force(&forces[i], force);
-         Subtract_force(&forces[j], force);  /* Newton's third law */
+         Subtract_force(&forces[j], force);
       }
    }
-}  /* Compute_forces */
+}
