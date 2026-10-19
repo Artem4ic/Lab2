@@ -1,3 +1,4 @@
+/* Открывает объявления POSIX-барьеров в системных заголовках. */
 #define _XOPEN_SOURCE 700
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,9 +11,9 @@ struct body_s* bodies;
 /* Каждый поток записывает силы только в свой массив. */
 struct vector_s** local_forces;
 size_t body_count;
-size_t thread_count;
-double current_step;
-int stop = 0;
+size_t thread_count;  /* Число рабочих потоков; главный поток считается отдельно. */
+double current_step; /* Главный поток задаёт шаг до стартового барьера. */
+int stop = 0;        /* Сигнал завершения читается после стартового барьера. */
 pthread_barrier_t barrier;
 
 /* При сбое создания потоков ожидание старта предотвращает зависание на барьере. */
@@ -29,6 +30,7 @@ void Wait_barrier(void);
 void* Thread_work(void* arg);
 
 /*-----------------------------------------------------------------*/
+/* Главный поток управляет шагами и выводом, рабочие потоки считают силы и движение. */
 int main(int argc, char* argv[]) {
    struct input_s input;
    pthread_t* thread_handles;
@@ -43,14 +45,17 @@ int main(int argc, char* argv[]) {
    thread_count = input.thread_count;
    bodies = Read_bodies(input.input_name, &body_count);
    thread_handles = Allocate(thread_count, sizeof(*thread_handles));
+   /* Аргументы остаются в памяти до завершения всех pthread_join. */
    args = Allocate(thread_count, sizeof(*args));
    local_forces = Allocate(thread_count, sizeof(*local_forces));
    for (rank = 0; rank < thread_count; rank++)
       local_forces[rank] = Allocate(body_count, sizeof(**local_forces));
+   /* На каждой встрече ожидаются все рабочие потоки и главный поток. */
    Check_pthread(pthread_barrier_init(&barrier, NULL, (unsigned)thread_count + 1),
                  "pthread_barrier_init");
    output = Open_output(&input, body_count);
 
+   /* Общее время включает создание потоков, запись CSV и ожидание завершения. */
    GET_TIME(total_start);
    for (rank = 0; rank < thread_count; rank++) {
       args[rank].rank = rank;
@@ -62,6 +67,7 @@ int main(int argc, char* argv[]) {
       created++;
    }
    Check_pthread(pthread_mutex_lock(&start_mutex), "pthread_mutex_lock");
+   /* При неполном создании группы уже запущенные потоки выйдут до барьера. */
    started = created == thread_count ? 1 : -1;
    Check_pthread(pthread_cond_broadcast(&start_cond), "pthread_cond_broadcast");
    Check_pthread(pthread_mutex_unlock(&start_mutex), "pthread_mutex_unlock");
@@ -71,6 +77,7 @@ int main(int argc, char* argv[]) {
       while (time < input.end_time) {
          next = Next_time(time, &input);
          current_step = next - time;
+         /* Этот интервал охватывает вычисления и ожидание трёх барьеров, без CSV. */
          GET_TIME(start);
          Wait_barrier();  /* 1: начало шага, current_step доступен всем потокам. */
          Wait_barrier();  /* 2: все силы вычислены по прежним координатам. */
@@ -107,6 +114,7 @@ int main(int argc, char* argv[]) {
 }
 
 /*-----------------------------------------------------------------*/
+/* Pthreads возвращает код ошибки напрямую; для сообщения используется strerror. */
 void Check_pthread(int error, const char* operation) {
    if (error != 0) {
       fprintf(stderr, "%s: %s\n", operation, strerror(error));
@@ -115,6 +123,7 @@ void Check_pthread(int error, const char* operation) {
 }
 
 /*-----------------------------------------------------------------*/
+/* PTHREAD_BARRIER_SERIAL_THREAD у одного участника означает успешную встречу. */
 void Wait_barrier(void) {
    int error = pthread_barrier_wait(&barrier);
    if (error != 0 && error != PTHREAD_BARRIER_SERIAL_THREAD)
@@ -122,6 +131,7 @@ void Wait_barrier(void) {
 }
 
 /*-----------------------------------------------------------------*/
+/* Рабочий поток: вычислить свою часть пар, объединить силы и обновить часть тел. */
 void* Thread_work(void* arg) {
    size_t my_rank = ((struct thread_arg_s*)arg)->rank;
    struct vector_s* my_forces = local_forces[my_rank];
@@ -130,6 +140,7 @@ void* Thread_work(void* arg) {
    int run;
 
    Check_pthread(pthread_mutex_lock(&start_mutex), "pthread_mutex_lock");
+   /* Условие проверяется в while, поскольку возможны ложные пробуждения. */
    while (started == 0)
       Check_pthread(pthread_cond_wait(&start_cond, &start_mutex), "pthread_cond_wait");
    run = started;
@@ -151,10 +162,11 @@ void* Thread_work(void* arg) {
       }
       Wait_barrier();  /* 2: чтение прежних координат завершено во всех потоках. */
 
-      /* Один поток суммирует силы из всех массивов и обновляет закреплённые за ним тела. */
+      /* Диапазоны тел не пересекаются: у каждого тела ровно один поток-писатель. */
       for (i = body_count*my_rank/thread_count;
            i < body_count*(my_rank + 1)/thread_count; i++) {
          struct vector_s total = {0.0, 0.0, 0.0};
+         /* Для своего тела нужно собрать вклады всех потоков, включая собственный. */
          for (rank = 0; rank < thread_count; rank++)
             Add_force(&total, local_forces[rank][i]);
          Update_body(&bodies[i], total, current_step);
