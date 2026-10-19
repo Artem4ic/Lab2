@@ -2,23 +2,14 @@
 """Reproducible comparison and measurements; standard library only."""
 import argparse
 import csv
-import hashlib
-import json
 import math
-import os
 from pathlib import Path
-import platform
 import random
 import re
 import statistics
 import subprocess
-import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def capture(args):
-    return subprocess.check_output(args, text=True).strip()
 
 
 def compare(reference, candidate):
@@ -68,22 +59,6 @@ def main():
         parser.error('Use positive sizes/threads and at least two repetitions')
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
-    metadata = {'date_utc': capture(['date', '-u', '+%FT%TZ']),
-                'platform': platform.platform(), 'lscpu': capture(['lscpu']),
-                'gcc': capture(['gcc', '--version']),
-                'affinity': sorted(os.sched_getaffinity(0)),
-                'arguments': vars(args),
-                'method': '1 warm-up per configuration, shuffled configurations in each of 5 rounds (or --repeats); arithmetic mean; dt=0.0625, tend=1, 16 steps, xyz CSV',
-                'compiler_flags': '-O2 -std=c11 -Wall -Wextra -Wpedantic; -pthread for parallel; -lm',
-                'source_sha256': {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                                  for p in sorted(ROOT.glob('*.c'))}}
-    for name in ('cpu.max', 'cpuset.cpus.effective', 'memory.max'):
-        p = Path('/sys/fs/cgroup') / name
-        metadata[name] = p.read_text().strip() if p.exists() else 'not available'
-    metadata['os_release'] = Path('/etc/os-release').read_text()
-    metadata['method'] = metadata['method'].replace('each of 5 rounds (or --repeats)',
-                                                    f'each of {args.repeats} rounds')
-    (out/'environment.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
     raw, comparisons = [], []
     rng = random.Random(71)
     configurations = [('serial', 1)] + [('pthreads', p) for p in args.threads]
