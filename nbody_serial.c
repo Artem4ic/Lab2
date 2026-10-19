@@ -25,7 +25,7 @@ int main(int argc, char* argv[]) {
    GET_TIME(total_start);
    Write_state(output, time, bodies, body_count, input.output_3d);
    while (time < input.end_time) {
-      next = Next_time(time, &input);
+      next = Next_time(time, steps, &input);
       step = next - time;
       // В вычислительное время входят только силы и обновление тел.
       GET_TIME(start);

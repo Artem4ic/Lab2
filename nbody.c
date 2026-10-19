@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <errno.h>
+#include <float.h>
 #include <math.h>
 #include <string.h>
 #include "nbody.h"
@@ -218,11 +219,14 @@ void Update_body(struct body_s* body, struct vector_s force, double step) {
    }
 }
 
-// Последний шаг сокращается, чтобы точно достичь конечного времени.
-double Next_time(double time, const struct input_s* input) {
-   double next;
-   if (input->end_time - time <= input->time_step) next = input->end_time;
-   else next = time + input->time_step;
+// Номер шага задаёт время без накопления погрешности от повторного сложения dt.
+double Next_time(double time, size_t steps, const struct input_s* input) {
+   double next = ((double)steps + 1.0)*input->time_step;
+   double tolerance = 4.0*DBL_EPSILON*input->end_time;
+
+   // Остаток в пределах точности double объединяется с последним шагом.
+   if (next >= input->end_time || input->end_time - next <= tolerance)
+      next = input->end_time;
    if (next <= time) {
       fprintf(stderr, "Time step is too small to advance time\n");
       exit(EXIT_FAILURE);

@@ -74,7 +74,7 @@ int main(int argc, char* argv[]) {
    if (created == thread_count) {
       Write_state(output, time, bodies, body_count, input.output_3d);
       while (time < input.end_time) {
-         next = Next_time(time, &input);
+         next = Next_time(time, steps, &input);
          current_step = next - time;
          // Этот интервал охватывает вычисления и ожидание трёх барьеров, без CSV.
          GET_TIME(start);

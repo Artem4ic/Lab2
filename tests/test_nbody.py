@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 import random
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -19,7 +20,10 @@ def reference(bodies, end, dt):
     positions = [value for body in bodies for value in body[1:4]]
     rows = [[time] + positions]
     while time < end:
-        next_time = end if end - time <= dt else time + dt
+        # Время задаётся номером шага, а не суммой уже сделанных шагов.
+        next_time = len(rows) * dt
+        if next_time >= end or end - next_time <= 4 * sys.float_info.epsilon * end:
+            next_time = end
         step = next_time - time
         updated_bodies = []
         for body_index, body in enumerate(bodies):
@@ -111,6 +115,36 @@ class NbodyTests(unittest.TestCase):
             for threads in (None, 1, 2, 3, 8):
                 with self.subTest(n=n, threads=threads):
                     _, rows = self.run_program(bodies, threads=threads)
+                    self.assert_rows(rows, expected)
+
+    def test_time_grid_without_extra_step(self):
+        # Число шагов задано явно и не зависит от алгоритма эталона.
+        cases = [
+            (10, 0.01, 1000),
+            (1, 0.1, 10),
+            (1, 0.0625, 16),
+            (0.9, 0.3, 3),
+            (0.025, 0.01, 3),
+            (1 + 1e-12, 0.1, 11),
+            (2.5e-15, 1e-15, 3),
+            (0.001, 0.01, 1),
+            (0, 0.1, 0),
+        ]
+        body = [2, 1, -2, 3, 4, -5, 6]
+        for end, dt, expected_steps in cases:
+            for threads in (None, 1, 4):
+                with self.subTest(end=end, dt=dt, threads=threads):
+                    _, rows = self.run_program([body], end=end, dt=dt, threads=threads)
+                    self.assertEqual(len(rows), expected_steps + 1)
+                    self.assertEqual(rows[-1][0], end)
+                    self.assertTrue(all(a[0] < b[0] for a, b in zip(rows, rows[1:])))
+
+                    # Одно тело движется равномерно: координаты известны без интегратора.
+                    expected = [
+                        [row[0]] + [body[axis + 1] + body[axis + 4] * row[0]
+                                    for axis in range(3)]
+                        for row in rows
+                    ]
                     self.assert_rows(rows, expected)
 
     def test_zero_time_and_xy_format(self):

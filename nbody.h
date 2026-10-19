@@ -40,6 +40,6 @@ struct vector_s Pair_force(const struct body_s* first,
 void Add_force(struct vector_s* sum, struct vector_s force);
 void Subtract_force(struct vector_s* sum, struct vector_s force);
 void Update_body(struct body_s* body, struct vector_s force, double step);
-double Next_time(double time, const struct input_s* input);
+double Next_time(double time, size_t steps, const struct input_s* input);
 
 #endif
