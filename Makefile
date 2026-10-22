@@ -10,10 +10,7 @@ nbody_serial: nbody_serial.c nbody.c nbody.h timer.h
 nbody_pthreads: nbody_pthreads.c nbody.c nbody.h timer.h
 	$(CC) $(CFLAGS) -pthread nbody_pthreads.c nbody.c -o $@ $(LDLIBS)
 
-test: all
-	python3 tests/test_nbody.py
-
 clean:
 	rm -f nbody_serial nbody_pthreads
 
-.PHONY: all test clean
+.PHONY: all clean

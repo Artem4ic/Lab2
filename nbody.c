@@ -2,16 +2,17 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <errno.h>
+#include <float.h>
 #include <math.h>
 #include <string.h>
 #include "nbody.h"
 
-const double G = 6.67430e-11;
+const double G = 6.67430e-11;  // Гравитационная постоянная в единицах СИ.
 
 static void Usage(const char* program, int parallel);
 static double Read_number(const char* text);
 
-/*-----------------------------------------------------------------*/
+// Выделение обнулённого массива с проверкой размера и наличия памяти.
 void* Allocate(size_t count, size_t size) {
    void* memory;
    if (size != 0 && count > SIZE_MAX/size) {
@@ -24,18 +25,18 @@ void* Allocate(size_t count, size_t size) {
       exit(EXIT_FAILURE);
    }
    return memory;
-}  /* Allocate */
+}
 
-/*-----------------------------------------------------------------*/
+// Некорректные аргументы: вывести формат запуска и завершить программу с ошибкой.
 static void Usage(const char* program, int parallel) {
    fprintf(stderr, "Usage: %s tend input.txt [dt [output.csv%s]]\n",
            program, parallel ? " [threads [xy|xyz]]" : " [xy|xyz]");
    fprintf(stderr, "Defaults: dt=0.01, output=trajectory.csv%s, format=xy\n",
            parallel ? ", threads=2" : "");
    exit(EXIT_FAILURE);
-}  /* Usage */
+}
 
-/*-----------------------------------------------------------------*/
+// Преобразование строки целиком: частичная запись числа, NaN и бесконечность запрещены.
 static double Read_number(const char* text) {
    char* end;
    double value;
@@ -46,9 +47,9 @@ static double Read_number(const char* text) {
       exit(EXIT_FAILURE);
    }
    return value;
-}  /* Read_number */
+}
 
-/*-----------------------------------------------------------------*/
+// Общий разбор параметров; parallel выбирает наличие аргумента с числом потоков.
 void Get_options(int argc, char* argv[], int parallel, struct input_s* input) {
    char* end;
    unsigned long value;
@@ -79,9 +80,9 @@ void Get_options(int argc, char* argv[], int parallel, struct input_s* input) {
       if (strcmp(argv[format_index], "xyz") == 0) input->output_3d = 1;
       else if (strcmp(argv[format_index], "xy") != 0) Usage(argv[0], parallel);
    }
-}  /* Get_options */
+}
 
-/*-----------------------------------------------------------------*/
+// Чтение начальных условий с проверкой масс, координат и скоростей.
 struct body_s* Read_bodies(const char* file_name, size_t* body_count) {
    FILE* file = fopen(file_name, "r");
    struct body_s* bodies;
@@ -118,6 +119,7 @@ struct body_s* Read_bodies(const char* file_name, size_t* body_count) {
          exit(EXIT_FAILURE);
       }
    }
+   // Дополнительные данные после заданного числа тел считаются ошибкой ввода.
    extra = fgetc(file);
    while (extra == ' ' || extra == '\n' || extra == '\r' || extra == '\t')
       extra = fgetc(file);
@@ -127,9 +129,9 @@ struct body_s* Read_bodies(const char* file_name, size_t* body_count) {
    }
    if (fclose(file) != 0) { perror("close input"); exit(EXIT_FAILURE); }
    return bodies;
-}  /* Read_bodies */
+}
 
-/*-----------------------------------------------------------------*/
+// Открытие CSV с перезаписью и заголовком для проекции xy или полного вывода xyz.
 FILE* Open_output(const struct input_s* input, size_t body_count) {
    size_t i;
    FILE* file = fopen(input->output_name, "w");
@@ -141,9 +143,9 @@ FILE* Open_output(const struct input_s* input, size_t body_count) {
    }
    fprintf(file, "\n");
    return file;
-}  /* Open_output */
+}
 
-/*-----------------------------------------------------------------*/
+// Одна строка CSV содержит время и координаты всех тел; %.17g сохраняет точность записи.
 void Write_state(FILE* file, double time, const struct body_s bodies[],
                  size_t body_count, int output_3d) {
    size_t i;
@@ -154,24 +156,25 @@ void Write_state(FILE* file, double time, const struct body_s bodies[],
    }
    fprintf(file, "\n");
    if (ferror(file)) { perror("write CSV"); exit(EXIT_FAILURE); }
-}  /* Write_state */
+}
 
-/*-----------------------------------------------------------------*/
+// Ошибка отложенной записи может обнаружиться только при закрытии файла.
 void Close_output(FILE* file) {
    if (fclose(file) != 0) { perror("close CSV"); exit(EXIT_FAILURE); }
-}  /* Close_output */
+}
 
-/*-----------------------------------------------------------------*/
+// Сила притяжения, действующая на первое тело со стороны второго.
 struct vector_s Pair_force(const struct body_s* first,
                            const struct body_s* second) {
    struct vector_s force;
+   // Вектор от первого тела ко второму задаёт направление силы притяжения.
    double dx = second->position.x - first->position.x;
    double dy = second->position.y - first->position.y;
    double dz = second->position.z - first->position.z;
    double distance = hypot(hypot(dx, dy), dz);
    double coefficient;
 
-   /* Point masses at the same position make the model undefined. */
+   // При совпадении точечных масс сила в этой модели не определена.
    if (distance == 0.0 || !isfinite(distance)) {
       fprintf(stderr, "Zero or non-finite distance between bodies\n");
       exit(EXIT_FAILURE);
@@ -185,25 +188,23 @@ struct vector_s Pair_force(const struct body_s* first,
       exit(EXIT_FAILURE);
    }
    return force;
-}  /* Pair_force */
+}
 
-/*-----------------------------------------------------------------*/
 void Add_force(struct vector_s* sum, struct vector_s force) {
    sum->x += force.x;
    sum->y += force.y;
    sum->z += force.z;
-}  /* Add_force */
+}
 
-/*-----------------------------------------------------------------*/
 void Subtract_force(struct vector_s* sum, struct vector_s force) {
    sum->x -= force.x;
    sum->y -= force.y;
    sum->z -= force.z;
-}  /* Subtract_force */
+}
 
-/*-----------------------------------------------------------------*/
+// Шаг Эйлера для одного тела; сила должна быть рассчитана по прежним координатам.
 void Update_body(struct body_s* body, struct vector_s force, double step) {
-   /* Position must use the OLD velocity (explicit Euler). */
+   // В явном методе Эйлера координаты обновляются по прежней скорости.
    body->position.x += body->velocity.x*step;
    body->position.y += body->velocity.y*step;
    body->position.z += body->velocity.z*step;
@@ -216,16 +217,19 @@ void Update_body(struct body_s* body, struct vector_s force, double step) {
       fprintf(stderr, "Non-finite state; check input and time step\n");
       exit(EXIT_FAILURE);
    }
-}  /* Update_body */
+}
 
-/*-----------------------------------------------------------------*/
-double Next_time(double time, const struct input_s* input) {
-   double next;
-   if (input->end_time - time <= input->time_step) next = input->end_time;
-   else next = time + input->time_step;
+// Номер шага задаёт время без накопления погрешности от повторного сложения dt.
+double Next_time(double time, size_t steps, const struct input_s* input) {
+   double next = ((double)steps + 1.0)*input->time_step;
+   double tolerance = 4.0*DBL_EPSILON*input->end_time;
+
+   // Остаток в пределах точности double объединяется с последним шагом.
+   if (next >= input->end_time || input->end_time - next <= tolerance)
+      next = input->end_time;
    if (next <= time) {
       fprintf(stderr, "Time step is too small to advance time\n");
       exit(EXIT_FAILURE);
    }
    return next;
-}  /* Next_time */
+}
